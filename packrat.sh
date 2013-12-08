@@ -138,9 +138,7 @@ is_date_before() {
 	
 	diff=$(($nowts - $filets))
 	# bash doesn't do floating point, so we'll get the floor of this division.
-	# add 1 day to the result to account for the floor.
-	# since we remove archives _older_ than X days, add another 1.
-	days=$(($diff / 86400 + 2))
+	days=$(($diff / 86400))
 	[ $days -gt $2 ] && echo 1
 }
 
