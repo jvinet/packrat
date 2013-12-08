@@ -17,15 +17,16 @@ mod_postgresql() {
 		fi
 		fn="${BACKUP_DIR}/$HOSTNAME-postgresql-${dbname}-$TODAY.sql.bz2"
 		verbose "[POSTGRESQL] backup up database: $db"
-		if [ "$POSTGRESQL_ENCRYPTION_KEY" ]; then
+		if [ "$ENCRYPTION_KEY" ]; then
 			# decrypt with 'openssl enc -d -bf -pass pass:<password> -in infile -out outfile'
-			verbose "[POSTGRESQL] cmd: $cmd $opts | bzip2 | openssl enc -e -salt -bf -pass pass:$POSTGRESQL_ENCRYPTION_KEY >$fn"
-			$cmd $opts | bzip2 | openssl enc -e -salt -bf -pass pass:$POSTGRESQL_ENCRYPTION_KEY >$fn
+			verbose "[POSTGRESQL] cmd: $cmd $opts | bzip2 | openssl enc -e -salt -bf -pass pass:$ENCRYPTION_KEY >$fn"
+			$cmd $opts | bzip2 | openssl enc -e -salt -bf -pass pass:$ENCRYPTION_KEY >$fn
 		else
 			verbose "[POSTGRESQL] cmd: $cmd $opts | bzip2 >$fn"
 			$cmd $opts | bzip2 >$fn
 		fi
-		[ $? -eq 0 ] || die "ERROR: command did not complete successfully"
+		# don't send sensitive data over email
+		[ $? -eq 0 ] || diemail "ERROR: command did not complete successfully ($?)\n\nCommand: $cmd <xxx>"
 		NEW_BACKUPS="$NEW_BACKUPS $fn"
 	done
 }

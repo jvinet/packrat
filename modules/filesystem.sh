@@ -23,7 +23,7 @@ mod_filesystem() {
 		cmdext=
 		fileext=".dar"
 		[ "$FS_SLICE_SIZE" ] && opts="$opts -s $FS_SLICE_SIZE"
-		[ "$FS_ENCRYPTION_KEY" ] && opts="$opts -K blowfish:$FS_ENCRYPTION_KEY"
+		[ "$ENCRYPTION_KEY" ] && opts="$opts -K blowfish:$ENCRYPTION_KEY"
 		incremental=0
 		master=0
 		if [ "$FS_INCREMENTAL" = "yes" ]; then
@@ -65,9 +65,10 @@ mod_filesystem() {
 				m=`find_master "${HOSTNAME}${noslash}"`
 				if [ "$m" ]; then
 					finalopts="$finalopts -A ${BACKUP_DIR}/${m}${cmdext}"
-					[ "$FS_ENCRYPTION_KEY" ] && finalopts="$finalopts -J blowfish:$FS_ENCRYPTION_KEY"
+					[ "$ENCRYPTION_KEY" ] && finalopts="$finalopts -J blowfish:$ENCRYPTION_KEY"
 				else
 					# missing the master, so we have to rebuild it
+					verbose "[FS] Cannot find master archive, will build one"
 					master=1
 				fi
 			fi
@@ -80,13 +81,13 @@ mod_filesystem() {
 			realfn="${fnbase}${fileext}"
 		fi
 		verbose "[FS] backing up $targ to $realfn"
-		verbose "[FS] cmd: $method $cmd ${BACKUP_DIR}/${cmdfn} $finalopts"
-		$method $cmd ${BACKUP_DIR}/${cmdfn} $finalopts
+		full_cmd="$method $cmd ${BACKUP_DIR}/${cmdfn} $finalopts"
+		verbose "[FS] cmd: $full_cmd"
+		$full_cmd
 		ret=$?
 		if [ $ret -ne 0 ]; then
-			# retcode 11 is allowed:  Dar uses it if a file changed while
-			# being read.
-			[ $ret -eq 11 ] || die "ERROR: command did not complete successfully ($ret)"
+			# retcode 11 is allowed: Dar uses it if a file changed while being read.
+			[ $ret -eq 11 ] || diemail "ERROR: command did not complete successfully ($ret)\n\nCommand: $full_cmd"
 		fi
 		for f in ${BACKUP_DIR}/${cmdfn}.*; do
 			NEW_BACKUPS="$NEW_BACKUPS $f"

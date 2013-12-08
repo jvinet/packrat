@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION="0.3.2"
+VERSION="0.4.0"
 OPT_VERBOSE=0
 OPT_CONFIG="/etc/packrat.conf"
 OPT_MODPATH="/usr/share/packrat/modules"
@@ -22,22 +22,42 @@ usage() {
 	echo "  -h           This help message"
 	echo "  -v           Verbose output"
 	echo "  -P           Purge old archives and exit"
-	echo "  -p <days>    Override PURGE_ARCHIVES in config file"
-	echo "  -m <methods> Override BACKUP_METHODS in config file (comma-separated)"
-	echo "  -u <methods> Override UPLOAD_METHODS in config file (comma-separated)"
+	echo "  -p <days>    Override PURGE_LOCAL_ARCHIVES in config file"
+	echo "  -r <days>    Override PURGE_REMOTE_ARCHIVES in config file"
+	echo "  -m <methods> Override BACKUP_MODULES in config file (comma-separated)"
+	echo "  -u <methods> Override UPLOAD_MODULES in config file (comma-separated)"
 	echo "  -U <date>    Perform upload stage only (date format: YYYYMMDD)"
 	echo
 }
+
+verbose() {
+	[ "$OPT_VERBOSE" = "1" ] && echo $*
+}
+
 die() {
 	echo "$*" >&2
 	exit 1
 }
-verbose() {
-	[ "$OPT_VERBOSE" = "1" ] && echo $*
+
+email() {
+	[ -z "$ADMIN_EMAIL" ] && return
+	msg="$*\n\nWARNING: The backup process was aborted. You may not have a stable backup for today."
+	echo -e "$msg" | mail -s "Packrat: Error" $ADMIN_EMAIL
 }
+
+diemail() {
+	email $*
+	die $*
+}
+
 run_module() {
 	mod_$1
 }
+
+module_list() {
+	list_$1
+}
+
 module_purge() {
 	purge_$1 $2
 }
@@ -50,9 +70,10 @@ while getopts "Phvc:p:m:u:U:-" opt; do
 		P) OPT_PURGE=1 ;;
 		c) OPT_CONFIG=$OPTARG ;;
 		v) OPT_VERBOSE=1 ;;
-		p) OPT_PURGE_ARCHIVES=$OPTARG ;;
-		m) OPT_BACKUP_METHODS=$OPTARG ;;
-		u) OPT_UPLOAD_METHODS=$OPTARG ;;
+		p) OPT_PURGE_LOCAL_ARCHIVES=$OPTARG ;;
+		r) OPT_PURGE_REMOTE_ARCHIVES=$OPTARG ;;
+		m) OPT_BACKUP_MODULES=$OPTARG ;;
+		u) OPT_UPLOAD_MODULES=$OPTARG ;;
 		U) OPT_UPLOAD_DATE=$OPTARG ;;
 		h) usage; exit 0; ;;
 		*) usage; exit 1; ;;
@@ -66,19 +87,33 @@ done
 source $OPT_CONFIG
 
 #
+# Sanity checks
+#
+check_if_set() {
+	eval "v=\$$1"
+	[ -z $v ] && die "Error: Configuration setting $1 is not defined"
+}
+check_if_set 'ADMIN_EMAIL'
+check_if_set 'BACKUP_DIR'
+check_if_set 'BACKUP_MODULES'
+check_if_set 'PURGE_LOCAL_ARCHIVES'
+[ -n $UPLOAD_MODULES ] && check_if_set 'PURGE_REMOTE_ARCHIVES'
+
+#
 # Handle overrides
 #
-[ "$OPT_PURGE_ARCHIVES" ] && PURGE_ARCHIVES=$OPT_PURGE_ARCHIVES
-if [ "$OPT_BACKUP_METHODS" ]; then
-	BACKUP_METHODS=()
-	for m in `echo $OPT_BACKUP_METHODS | sed 's|,| |g'`; do
-		BACKUP_METHODS=(${BACKUP_METHODS[*]} $m)
+[ "$OPT_PURGE_LOCAL_ARCHIVES" ] && PURGE_LOCAL_ARCHIVES=$OPT_PURGE_LOCAL_ARCHIVES
+[ "$OPT_PURGE_REMOTE_ARCHIVES" ] && PURGE_REMOTE_ARCHIVES=$OPT_PURGE_REMOTE_ARCHIVES
+if [ "$OPT_BACKUP_MODULES" ]; then
+	BACKUP_MODULES=()
+	for m in `echo $OPT_BACKUP_MODULES | sed 's|,| |g'`; do
+		BACKUP_MODULES=(${BACKUP_MODULES[*]} $m)
 	done
 fi
-if [ "$OPT_UPLOAD_METHODS" ]; then
-	UPLOAD_METHODS=()
-	for m in `echo $OPT_UPLOAD_METHODS | sed 's|,| |g'`; do
-		UPLOAD_METHODS=(${UPLOAD_METHODS[*]} $m)
+if [ "$OPT_UPLOAD_MODULES" ]; then
+	UPLOAD_MODULES=()
+	for m in `echo $OPT_UPLOAD_MODULES | sed 's|,| |g'`; do
+		UPLOAD_MODULES=(${UPLOAD_MODULES[*]} $m)
 	done
 fi
 
@@ -90,15 +125,48 @@ for f in $OPT_MODPATH/*.sh; do
 done
 
 #
-# Purge old archives
+# Check if a file ($1) is older than X days ($2).
+# File's date is determined by the 'YYYYMMDD' portion of the filename.
 #
-for f in `find $BACKUP_DIR -type f -mtime +$PURGE_ARCHIVES`; do
-	verbose "Removing old archive: $f"
-	rm -f $f
-	for m in "${UPLOAD_METHODS[@]}"; do
-		module_purge $m `basename $f`
+is_date_before() {
+	# extract date from filename (1st arg)
+	filedate=`echo $(basename $1) | grep -o -e '20[0-9]\{6\}'`
+	[ -z $filedate ] && diemail "Error: could not extract date from filename: $1"
+	# convert to unix timestamp
+	filets=`date --date="$filedate" +%s`
+	nowts=`date +%s`
+	
+	diff=$(($nowts - $filets))
+	# bash doesn't do floating point, so we'll get the floor of this division.
+	# add 1 day to the result to account for the floor.
+	# since we remove archives _older_ than X days, add another 1.
+	days=$(($diff / 86400 + 2))
+	[ $days -gt $2 ] && echo 1
+}
+
+#
+# Purge old local archives
+#
+for f in `find $BACKUP_DIR -type f`; do
+	if [ "`is_date_before $f $PURGE_LOCAL_ARCHIVES`" ]; then
+		verbose "Removing old local archive: $f"
+		rm -f $f
+	fi
+done
+
+#
+# Purge old remote archives
+#
+for m in "${UPLOAD_MODULES[@]}"; do
+	for f in `module_list $m`; do
+		if [ "`is_date_before $f $PURGE_REMOTE_ARCHIVES`" ]; then
+			verbose "Removing old remote archive: $f"
+			module_purge $m `basename $f`
+		fi
 	done
 done
+
+# If -P was used, then we stop execution here.
 [ "$OPT_PURGE" = "1" ] && exit 0
 
 if [ "$OPT_UPLOAD_DATE" ]; then
@@ -107,15 +175,15 @@ else
 	#
 	# Pass control to each backup module
 	# 
-	for m in ${BACKUP_METHODS[@]}; do
+	for m in ${BACKUP_MODULES[@]}; do
 		run_module $m
 	done
 fi
 
 #
-# Pass control to each file-upload module
+# Pass control to each upload module
 #
-for m in ${UPLOAD_METHODS[@]}; do
+for m in ${UPLOAD_MODULES[@]}; do
 	run_module $m
 done
 
