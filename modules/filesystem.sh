@@ -18,7 +18,7 @@ mod_filesystem() {
 	if [ "$FS_METHOD" = "dar" ]; then
 		method="dar"
 		cmd="-c"
-		opts="-n -y9 -D"
+		opts="-n -z9 -D"
 		fnprefix=
 		cmdext=
 		fileext=".dar"
