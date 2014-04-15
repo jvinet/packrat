@@ -8,7 +8,7 @@ find_master() {
 	fi
 	[ "$m" ] || return
 	# shave off any possible extensions
-	m="`echo $m | sed 's|.1.dar$||g' | sed 's|.tar.bz2||g'`"
+	m="`echo $m | sed 's|.1.dar$||g' | sed 's|.tar.bz2$||g'`"
 	echo $m
 }
 

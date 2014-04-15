@@ -14,9 +14,9 @@ NEW_BACKUPS=
 usage() {
 	echo "packrat version $VERSION"
 	echo "Copyright (C) 2007, Judd Vinet <jvinet@zeroflux.org>"
-	echo 
+	echo
 	echo "Usage: packrat [options]"
-	echo 
+	echo
 	echo "Options:"
 	echo "  -c <file>    Path to config file"
 	echo "  -h           This help message"
@@ -131,11 +131,14 @@ done
 is_date_before() {
 	# extract date from filename (1st arg)
 	filedate=`echo $(basename $1) | grep -o -e '20[0-9]\{6\}'`
-	[ -z $filedate ] && diemail "Error: could not extract date from filename: $1"
+	if [ -z $filedate ]; then
+		echo "Warning: could not extract date from filename: $1"
+		return
+	fi
 	# convert to unix timestamp
 	filets=`date --date="$filedate" +%s`
 	nowts=`date +%s`
-	
+
 	diff=$(($nowts - $filets))
 	# bash doesn't do floating point, so we'll get the floor of this division.
 	days=$(($diff / 86400))
@@ -172,7 +175,7 @@ if [ "$OPT_UPLOAD_DATE" ]; then
 else
 	#
 	# Pass control to each backup module
-	# 
+	#
 	for m in ${BACKUP_MODULES[@]}; do
 		run_module $m
 	done
